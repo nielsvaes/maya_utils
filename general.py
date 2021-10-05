@@ -475,10 +475,14 @@ def is_joint(node):
     :param node: *string* or *pynode*
     :return:
     """
-    node = pynode(node)
+    try:
+        node = pynode(node)
 
-    if type(node) == pm.nodetypes.Joint:
-        return True
+        if type(node) == pm.nodetypes.Joint:
+            return True
+    except Exception as err:
+        print(err)
+        return False
 
 def get_maya_main_window():
     """
@@ -563,7 +567,7 @@ def flatten_component_list(component_list, as_pynodes=False):
 
 
 def get_from_list(input_list, meshes=False, all_components=False, vertices=False, edges=False, faces=False,
-                  joints=False, constraints=False, nurbs_curves=False, groups=False):
+                  joints=False, constraints=False, nurbs_curves=False, groups=False, transforms=False):
     """
     Given an input list of mixed types, return the ones you want
 
@@ -577,6 +581,7 @@ def get_from_list(input_list, meshes=False, all_components=False, vertices=False
     :param constraints: *bool* returns all constraints
     :param nurbs_curves: *bool* returns nurbs curves
     :param groups: *bool* returns groups
+    :param transforms: *bool* returns transforms
 
     :return: *list* of PyNodes
     """
@@ -619,7 +624,10 @@ def get_from_list(input_list, meshes=False, all_components=False, vertices=False
         return_list.extend([node.getParent() for node in pm.ls(type="nurbsCurve")])
 
     if groups:
-        return_list.extend([node for node in pm.ls(type="transform") if is_group(node)])
+        return_list.extend([node for node in pm.ls(input_list, type="transform") if is_group(node)])
+
+    if transforms:
+        return_list.extend([node for node in pm.ls(input_list, type="transform")])
 
     return [pynode(each) for each in lists.remove_duplicates(return_list)]
 
@@ -1130,6 +1138,22 @@ def set_enum_by_string(node, attribute, string):
     enum_options = enum_string.split(":")
     index = enum_options.index(string)
     pm.setAttr("%s.%s" % (node, attribute), index)
+
+def are_siblings(nodes):
+    """
+    Returns true if all the nodes in the list have the same parent node
+
+    :param nodes: *list*
+    :return:
+    """
+    parents = []
+    for node in nodes:
+        parents.append(pm.PyNode(node).getParent())
+
+    if len(lists.remove_duplicates(parents)) == 1:
+        return True
+    return False
+
 
 def make_marking_menu():
     pass
