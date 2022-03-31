@@ -1,6 +1,6 @@
 import pymel.core as pm
-import general
-import rigging
+from . import general
+from . import rigging
 
 def get_blend_shape_nodes(source_object):
     """

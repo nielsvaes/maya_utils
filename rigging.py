@@ -1,9 +1,9 @@
 import pymel.core as pm
 import maya.cmds as cmds
 
-import general
+from . import general
 from ..utils import lists
-from constants import jk
+from .constants import jk
 
 def label_joints(joints):
     """
@@ -46,6 +46,10 @@ def label_joints(joints):
     label_dict["foot_thumb"] = 29
 
     for joint in [pm.PyNode(node) for node in joints]:
+        # early out if someone has already decorated/labeled this joint
+        if joint.getAttr("type") == label_dict["other"]:
+            continue
+
         x_pos = joint.getTranslation(space="world")[0]
         if x_pos > 0.01:
             joint.setAttr("side", 1)
@@ -130,7 +134,7 @@ def set_joint_draw_style(joints, none=False, bone=False):
             if bone:
                 joint.setAttr("drawStyle", bone_style)
 
-def skeleton_as_dictionary(root_joint):
+def skeleton_as_dictionary(root_joint, strip_namespace=True):
     """
     Returns a list with joint info dictionaries. The list looks like:
     [
@@ -204,11 +208,15 @@ def skeleton_as_dictionary(root_joint):
     for joint in joint_hierarchy:
         skeleton_dict = {}
         try:
-            skeleton_dict[jk.parent] = joint.getParent().name(long=True)
+            parent = joint.getParent()
+            if general.is_joint(parent):
+                skeleton_dict[jk.parent] = joint.getParent().name(long=False, stripNamespace=strip_namespace)
+            else:
+                skeleton_dict[jk.parent] = None
         except:
             skeleton_dict[jk.parent] = None
-        skeleton_dict[jk.name] = joint.name(long=False)
-        skeleton_dict[jk.long_name] = joint.name(long=True)
+        skeleton_dict[jk.name] = joint.name(long=False, stripNamespace=strip_namespace)
+        skeleton_dict[jk.long_name] = joint.name(long=True, stripNamespace=strip_namespace)
         skeleton_dict[jk.world_matrix] = lists.flatten(joint.getMatrix(worldSpace=True))
         skeleton_dict[jk.local_matrix] = lists.flatten(joint.getMatrix(objectSpace=True))
         skeleton_dict[jk.joint_orient] = list(joint.jointOrient.get())
@@ -220,7 +228,7 @@ def skeleton_as_dictionary(root_joint):
 
     return skeleton_dict_list
 
-def skeleton_from_dictionary(dictionary_list, adjust_existing_joints=True):
+def skeleton_from_dictionary(dictionary_list, adjust_existing_joints=True, node_remap=None):
     """
     Builds the skeleton based on the dictionaries in dictionary_list
 
@@ -229,30 +237,49 @@ def skeleton_from_dictionary(dictionary_list, adjust_existing_joints=True):
     dictionary_list, even it already exists. If turned on, will load the attributes on the existing joints in the scene.
     :return:
     """
-    for joint_dictionary in dictionary_list:
+    for i, joint_dictionary in enumerate(dictionary_list):
         try:
-            if adjust_existing_joints:
-                if not pm.objExists(joint_dictionary.get(jk.long_name)):
-                    joint = pm.createNode(pm.nt.Joint, name=joint_dictionary.get(jk.name))
-                else:
-                    joint = general.pynode(joint_dictionary.get(jk.long_name))
-            else:
-                joint = general.pynode(joint_dictionary.get(jk.long_name))
+            long_name = joint_dictionary.get(jk.long_name)
+            short_name = joint_dictionary.get(jk.name)
+            jnt_parent = joint_dictionary.get(jk.parent)
 
-            pm.parent(joint, joint_dictionary.get(jk.parent))
+            # remap node names to new targets
+            if node_remap:
+                if jnt_parent in list(node_remap.keys()):
+                    jnt_parent = node_remap.get(jnt_parent)
+
+            if adjust_existing_joints:
+                if pm.objExists(long_name):
+                    joint = general.pynode(long_name)
+                else:
+                    found_matches = pm.ls(short_name)
+                    if len(found_matches) == 1:
+                        joint = found_matches[0]
+                    elif len(found_matches) > 1:
+                        raise Exception("Found multiple matches for joint : {}. \n Aborting! \n Found matches : {}"
+                                        .format(short_name, [n.name() for n in found_matches]))
+                    else:
+                        raise Exception("Found no match for joint : {}. \n Aborting!".format(short_name))
+            else:
+                joint = pm.createNode(pm.nt.Joint, name=short_name)
+
+            if not adjust_existing_joints:
+                pm.parent(joint, jnt_parent)
 
             joint.rotateOrder.set(joint_dictionary.get(jk.rotate_order))
             joint.radius.set(joint_dictionary.get(jk.radius))
             joint.jointOrient.set(joint_dictionary.get(jk.joint_orient))
-            joint.setMatrix(joint_dictionary.get(jk.local_matrix), objectSpace=True)
+            if jnt_parent is None:
+                joint.setMatrix(joint_dictionary.get(jk.world_matrix))
+            else:
+                joint.setMatrix(joint_dictionary.get(jk.local_matrix), objectSpace=True)
             joint.visibility.set(joint_dictionary.get(jk.visibility))
-        except:
+        except Exception as err:
+            print(err)
             pass
 
     pm.select(None)
     label_joints(pm.ls(type=pm.nt.Joint))
-
-    return general.pynode(dictionary_list[0].get(jk.long_name))
 
 def create_wrap(*args, **kwargs):
     """

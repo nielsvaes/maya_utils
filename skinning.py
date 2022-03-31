@@ -1,3 +1,5 @@
+import traceback
+
 import pymel.core as pm
 import maya.OpenMaya as om
 from maya import OpenMayaUI as omui
@@ -8,12 +10,17 @@ import maya.api.OpenMayaUI as newOMUI
 from ..utils import io_utils
 from ..utils import decorators
 from . import general
+from . import ui as mui
 # import general
 
 import os
 import tempfile
 from functools import partial
 from collections import OrderedDict
+
+import sys
+PY3 = sys.version_info.major > 2
+
 
 def hard_skin_to_single_joint(mesh, joint, remove_unused_influences=True):
     """
@@ -41,7 +48,7 @@ def hard_skin_to_single_joint(mesh, joint, remove_unused_influences=True):
 
     return skin_cluster
 
-def copy_skin(source_mesh, target_mesh, method=["closestJoint", "label", "oneToOne"], smooth=True):
+def copy_skin(source_mesh, target_mesh, method=["label", "oneToOne", "closestJoint"], smooth=True):
     """
     Copies the skinning from the source mesh to the target mesh. Makes a skin cluster if the target mesh doesn't have one
 
@@ -171,6 +178,8 @@ def get_soft_selection_weights():
     om.MGlobal.getRichSelection(softSelection)
     softSelection.getSelection(selection)
 
+    print(selection)
+
     dagPath = om.MDagPath()
     component = om.MObject()
 
@@ -200,6 +209,7 @@ def set_soft_select_weights():
 
     :return: None
     """
+
     with pm.UndoChunk():
         selection = pm.selected()
         if len(selection) < 2:
@@ -221,6 +231,7 @@ def set_soft_select_weights():
             # replace the value in the list of weights at the location of the joint we have selected
             # with the value that we found using get_soft_selection_weights()
             weights_list_for_this_vertex[new_joint_index] = soft_select_weights[index]
+            weights_list_for_this_vertex = normalize(weights_list_for_this_vertex, new_joint_index)
 
             # replace the weights list for this particular vertex with the normalized weights
             skin_info.set_weights_list_of_vertex(vertex_number, weights_list_for_this_vertex)
@@ -228,39 +239,10 @@ def set_soft_select_weights():
 
         # grab the complete weightlist from our SkinInfo class and dump it into the selected mesh's skinCluster
         complete_weights_list = skin_info.get_complete_weights_list()
-        skin_info.set_weights(complete_weights_list, normalize=True)
+        # skin_info.set_weights(complete_weights_list, normalize=True)
+        skin_info.set_weights(complete_weights_list)
 
         pm.select(None)
-
-# def assign_weight_to_joint(weight, vertices, joint):
-#     """
-#     Assigns a specific weight to a specific joint
-#
-#     :param weight: *float* weight value to assign the the vertices
-#     :param vertices: *list* of PyNodes of the vertices
-#     :param joint: *joint* or *string* of the joint you want to assign the value to
-#     :return: None
-#     """
-#     weight = float(weight)
-#     vertex_numbers = general.get_component_numbers(vertices)
-#     skin = get_skin_cluster_from_component(vertices[0])
-#     mesh = get_transform_from_skin_cluster(skin)
-#
-#     skin_info = SkinInfo(mesh)
-#
-#     if weight > 1.0:
-#         weight = 1.0
-#
-#     for vtx_number in vertex_numbers:
-#         joint_index = skin_info.get_index_of_joint(joint)
-#         weights_list_for_this_vertex = skin_info.get_weight_list_of_vertex(vtx_number)
-#
-#         weights_list_for_this_vertex[joint_index] = weight
-#
-#         weights_list_for_this_vertex = normalize(weights_list_for_this_vertex, joint_index)
-#         skin_info.set_weights_list_of_vertex(vtx_number, weights_list_for_this_vertex)
-#
-#     skin_info.set_weights(skin_info.get_complete_weights_list(), normalize=False)
 
 def assign_weight_to_joint(weight, components, joint):
     """
@@ -292,8 +274,8 @@ def normalize(values, unchanged_index=0):
     if not total_except_remaining == 0:
         return [(value * remaining / total_except_remaining if idx != unchanged_index else value)
                 for idx, value in enumerate(values)]
-    else: [(value * remaining if idx != unchanged_index else value)
-                for idx, value in enumerate(values)]
+    else:
+        return [(value * remaining if idx != unchanged_index else value) for idx, value in enumerate(values)]
 
 def user_is_skinning():
     """
@@ -380,10 +362,15 @@ def reinitialize_skinning(mesh):
 
 
 placed_joints = []
-def enter_joint_placement():
+def enter_joint_placement(post_creation_func=None):
     global placed_joints
+    placed_joints.clear()
+    pm.optionVar["JointPlacer_FirstClickedMesh"] = ""
+
     target_meshes = general.get_from_list(pm.ls(), meshes=True)
-    active_panel = pm.getPanel(underPointer=True)
+    target_meshes = [m for m in target_meshes if m.isVisible()]
+
+    active_panel = mui.get_active_viewport()
 
     if pm.isolateSelect(active_panel, query=True, state=True):
         target_meshes = general.pynode(pm.isolateSelect(active_panel, query=True, viewObjects=True)).flattened()
@@ -392,12 +379,12 @@ def enter_joint_placement():
     if pm.draggerContext(dragger_context, exists=True):
         pm.deleteUI(dragger_context)
     pm.draggerContext(dragger_context, name=dragger_context, cursor='crossHair',
-                      releaseCommand=partial(place_joint, dragger_context, target_meshes),
+                      releaseCommand=partial(place_joint, dragger_context, target_meshes, post_creation_func),
                       drawString="Middle mouse to end placing")
     pm.setToolTo(dragger_context)
 
 
-def place_joint(dragger_context, target_meshes):
+def place_joint(dragger_context, target_meshes, post_creation_func=None):
     global placed_joints
 
     modifier = pm.draggerContext(dragger_context, query=True, modifier=True)
@@ -409,12 +396,13 @@ def place_joint(dragger_context, target_meshes):
 
     omui.M3dView().active3dView().viewToWorld(int(screen_x), int(screen_Y), position, direction)
 
-    active_camera = general.pynode(pm.modelPanel(pm.getPanel(withFocus=True), query=True, cam=True))
+    active_camera = general.pynode(pm.modelPanel(mui.get_active_viewport(), query=True, cam=True))
     camera_position = active_camera.getTranslation(worldSpace=True)
     mouse_button = pm.draggerContext(dragger_context, query=True, button=True)
     hit_positions = []
 
     if mouse_button == 1:
+        clicked_meshes = {}
         for mesh in target_meshes:
             selectionList = om.MSelectionList()
             selectionList.add(mesh.name())
@@ -429,22 +417,28 @@ def place_joint(dragger_context, target_meshes):
                 None, None, None, None, None)
 
             if clicked_on_mesh is not False:
-                hit_positions.append(pm.datatypes.Vector([hitpoint.x, hitpoint.y, hitpoint.z]))
+                hit_pos = (hitpoint.x, hitpoint.y, hitpoint.z)
+                hit_positions.append(hit_pos)
+                clicked_meshes[hit_pos] = mesh.name()
 
-        hit_positions.sort(key=lambda p: camera_position.distanceTo(p))
-        pm.select(None)
-        joint = pm.joint()
+        hit_positions.sort(key=lambda p: camera_position.distanceTo(pm.datatypes.Vector(p)))
+        hit_pos = hit_positions[0]
+        if not pm.optionVar.get("JointPlacer_FirstClickedMesh"):
+            pm.optionVar["JointPlacer_FirstClickedMesh"] = clicked_meshes.get(hit_pos)
+            print(f"Setting JointPlacement mesh to: {clicked_meshes.get(hit_pos)}")
+
+        joint = pm.createNode("joint")
 
         if modifier == "shift":
             if len(placed_joints) > 0:
                 previous_joint = placed_joints[-1]
 
                 x = previous_joint.translateX.get()
-                y = hit_positions[0][1]
+                y = hit_pos[1]
                 z = previous_joint.translateZ.get()
                 joint.setTranslation([x, y, z])
         else:
-            joint.setTranslation(hit_positions[0])
+            joint.setTranslation(hit_pos)
 
         joint.overrideEnabled.set(True)
         joint.overrideRGBColors.set(True)
@@ -468,9 +462,20 @@ def place_joint(dragger_context, target_meshes):
         #                               aimVector=[0, 0, -1], upVector=[-1, 0, 0], skip=["y", "z"])
         # pm.delete(constraint)
 
-        # pm.joint(placed_joints[-1], edit=True, orientJoint="xyz", secondaryAxisOrient="yup", children=True, zeroScaleOrient=True)
-        # pm.makeIdentity(placed_joints[-1], rotate=True)
+        pm.joint(placed_joints[-1], edit=True, orientJoint="xyz", secondaryAxisOrient="yup", children=True, zeroScaleOrient=True)
+        pm.makeIdentity(placed_joints[-1], rotate=True)
+        placed_joints[0].rotate.set(0, 0, 0)
+        placed_joints[0].jointOrient.set(0, 0, 0)
+        pm.select(placed_joints[-1])
+        # move joint inside the mesh a little bit
+        # pm.move(placed_joints[-1], 0, -1, 0, relative=True, objectSpace=True)
+        if post_creation_func:
+            try:
+                post_creation_func(placed_joints, pm.optionVar.get("JointPlacer_FirstClickedMesh"))
+            except Exception as e:
+                traceback.print_exc()
         placed_joints = []
+        pm.optionVar["JointPlacer_FirstClickedMesh"] = ""
 
 
 def enter_hammer_tool():
@@ -492,7 +497,7 @@ def enter_hammer_tool():
             direction = newOM.MVector()
             newOMUI.M3dView().active3dView().viewToWorld(int(screen_x), int(screen_Y), position, direction)
 
-            active_panel = pm.getPanel(withFocus=True)
+            active_panel = mui.get_active_viewport()
             active_camera = general.pynode(pm.modelPanel(active_panel, query=True, cam=True))
 
             camera_position = active_camera.getTranslation(worldSpace=True)
@@ -690,7 +695,12 @@ class SkinInfo(object):
 
         influenced_vertices = []
 
-        for vertex, weights in self.skin_info_dict.get("weight_dict").iteritems():
+        if PY3:
+            iter_func = self.skin_info_dict.get("weight_dict").items
+        else:
+            iter_func = self.skin_info_dict.get("weight_dict").iteritems
+
+        for vertex, weights in iter_func():
             for joint_index in joint_indices:
                 if weights[joint_index] > 0:
                     influenced_vertices.append(int(vertex))

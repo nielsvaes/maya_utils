@@ -1,3 +1,4 @@
+from ..utils import lists
 import pymel.core as pm
 
 class progress_window(object):
@@ -93,3 +94,29 @@ def deselect_reselect(method):
         pm.select(selection)
 
     return wrapper
+
+
+class ListNewNodes(object):
+    def __init__(self, *args, **kwargs):
+        self.existing_nodes = None
+        self.ls_args = args
+        self.ls_kwargs = kwargs
+
+        self.result = None
+
+    def __enter__(self, *args, **kwargs):
+        self.existing_nodes = pm.ls(*self.ls_args, **self.ls_kwargs)
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        post_scene_nodes = pm.ls(*self.ls_args, **self.ls_kwargs)
+
+        # figure out which nodes have been created
+        new_nodes = lists.difference([self.existing_nodes, post_scene_nodes])
+
+        # remove pymel undo nodes that might end up in the list
+        for new_node in new_nodes:
+            if "__pymelUndoNode" in new_node.name():
+                new_nodes.remove(new_node)
+
+        self.result = new_nodes

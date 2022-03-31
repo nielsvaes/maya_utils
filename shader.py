@@ -105,3 +105,10 @@ def assign_material(mesh, material):
     pm.sets(shading_group, edit=True, forceElement=mesh)
     mesh.updateSurface()
 
+def get_all_materials():
+    all_materials = []
+    for shading_engine in pm.ls(type=pm.nt.ShadingEngine):
+        if len(shading_engine) > 0:
+            for material in shading_engine.surfaceShader.listConnections():
+                all_materials.append(material)
+    return all_materials

@@ -2,7 +2,7 @@ import pymel.core as pm
 
 from ..utils import lists
 from ..utils import io_utils
-import shader
+from . import shader
 from .constants import ComponentSelectionType
 
 import os
@@ -15,6 +15,10 @@ import maya.api.OpenMaya as om
 
 from PySide2.QtWidgets import *
 from shiboken2 import wrapInstance
+
+import sys
+if sys.version_info.major > 2:
+    long = int
 
 def maya_useNewAPI():
     """
@@ -105,7 +109,7 @@ def get_all_visibile_meshes(as_transforms=False, as_shape_nodes=False):
     if as_shape_nodes:
         return list(set([get_shape_nodes(node)[0] for node in visible_meshes]))
 
-def get_shortest_name(node):
+def get_shortest_name(node, strip_namespace=True):
     """
     For a given node, return the shortest possible name. Strips the full dag path and any existing namespace.
 
@@ -113,7 +117,7 @@ def get_shortest_name(node):
     :return: <str>
     """
     node = pynode(node)
-    return node.name(long=None, stripNamespace=True)
+    return node.name(long=None, stripNamespace=strip_namespace)
 
 def replace_shape_nodes(source_transform, target_transform, delete_source_transform=True):
     """
@@ -150,6 +154,19 @@ def add_to_shape_nodes(source_transform, target_transform, delete_source_transfo
 
     if delete_source_transform:
         pm.delete(source_transform)
+
+def delete_namespace(namespace):
+    """
+    Removes all objects from the given namespace and then removes it
+
+    :param namespace: *string*
+    :return:
+    """
+    try:
+        pm.namespace(force=True, rm=namespace, mergeNamespaceWithRoot=True)
+        pm.namespace (set=':')
+    except:
+        pass
 
 def remove_namespace(object_name):
     """
@@ -191,11 +208,11 @@ def set_node_namespace(nodes, namespace):
         nodes = [nodes]
 
     if not pm.namespace(exists=namespace):
-       pm.namespace(add=namespace)
+        pm.namespace(addNamespace=namespace)
 
     for node in nodes:
-        pynode(node)
-        pm.rename(node.name(), "%s:%s" % (namespace, node.name()))
+        node = pynode(node)
+        node.rename("{}:{}".format(namespace, node.nodeName()))
 
 def add_to_display_layer(objects, display_layer_name):
     """
@@ -239,6 +256,30 @@ def nuke_display_layer(display_layer_name):
     else:
         warning("Display layer: %s doesn't exist" % display_layer_name)
         return False
+
+def get_empty_display_layers():
+    """
+    Returns a list of all empty display layers in the scene
+    :return: *list*
+    """
+    empty_layers = []
+    for layer in pm.ls(type="displayLayer"):
+        if pm.editDisplayLayerMembers(layer, query=True) is None:
+            empty_layers.append(layer)
+
+    return empty_layers
+
+def get_non_empty_display_layers():
+    """
+    Returns all display layers that have at least one thing in it
+    :return:
+    """
+    dilledaddles = []
+    for layer in pm.ls(type="displayLayer"):
+        if pm.editDisplayLayerMembers(layer, query=True):
+            dilledaddles.append(layer)
+
+    return dilledaddles
 
 def to_pynodes(input_list):
     """
@@ -322,7 +363,7 @@ def pynode(object_name, specific_on_multiple=False, pick_most_root=False, pick_m
                         return pm.PyNode(selected_node)
 
                     error("When custom_on_multiple is set to True, either pick_most_root or pick_most_leaf "
-                                     "should be set to True as well")
+                          "should be set to True as well")
     else:
         error("Can't make a PyNode. Object (%s) doesn't exist" % object)
 
@@ -352,11 +393,11 @@ def error(message):
     :param message: *string* message you want to show
     :return:
     """
-    show_viewport_message(message, color="red", echo=False)
+    show_viewport_message(message, color="red", echo=False, visible_time=5000)
     message = "->\n\n" + " " * 50 + message
     pm.error(message)
 
-def show_viewport_message(message, color, echo=True):
+def show_viewport_message(message, color, echo=True, visible_time=1500):
     """
     Shows a viewport message with a chosen color
 
@@ -377,7 +418,7 @@ def show_viewport_message(message, color, echo=True):
     except:
         pass
 
-    pm.inViewMessage(statusMessage=message, backColor=back_color, fadeStayTime=1500, fade=True,
+    pm.inViewMessage(statusMessage=message, backColor=back_color, fadeStayTime=visible_time, fade=True,
                      position="topCenter")
     if echo:
         print(message)
@@ -418,6 +459,9 @@ def lock_and_hide_selected(node, attribute_list=[], translate=False, rotate=Fals
     for attribute in attribute_list:
         node.setAttr(attribute, lock=lock)
         node.setAttr(attribute, keyable=visible)
+
+def lock_and_hide_default_attributes(node):
+    lock_and_hide_selected(node, translate=True, rotate=True, scale=True, attribute_list=["visibility"])
 
 def get_point_list_from_curve(curve):
     """
@@ -495,7 +539,7 @@ def get_maya_main_window():
 
     return maya_main_window
 
-def get_scene_path(full_path=False, name_only=False, folder_only=False, extension=True):
+def get_scene_path(full_path=True, name_only=False, folder_only=False, extension=True):
     """
     Extension of the normal pm.sceneName() with a bit more options
 
@@ -505,10 +549,6 @@ def get_scene_path(full_path=False, name_only=False, folder_only=False, extensio
     :param extension: *bool* whether or not to return the name with the extension
     :return: *string*
     """
-    if full_path:
-        if extension:
-            return pm.sceneName()
-        return os.path.splitext(pm.sceneName())[0]
     if name_only:
         name = os.path.basename(pm.sceneName())
         if extension:
@@ -516,7 +556,10 @@ def get_scene_path(full_path=False, name_only=False, folder_only=False, extensio
         return os.path.splitext(name)[0]
     if folder_only:
         return os.path.dirname(pm.sceneName())
-
+    if full_path:
+        if extension:
+            return pm.sceneName()
+        return os.path.splitext(pm.sceneName())[0]
     return ""
 
 def get_active_camera():
@@ -718,13 +761,13 @@ def is_point_inside_mesh(point, mesh_name, direction=[0.0, 0.0, 1.0]):
     farray = old_OM.MFloatPointArray()
 
     mesh_name.allIntersections(
-            point, direction,
-            None, None, False,
-            old_OM.MSpace.kWorld,
-            10000,
-            False, None, False,
-            farray,
-            None, None, None, None, None
+        point, direction,
+        None, None, False,
+        old_OM.MSpace.kWorld,
+        10000,
+        False, None, False,
+        farray,
+        None, None, None, None, None
     )
 
     if farray.length() % 2 == 1:
@@ -971,8 +1014,11 @@ def meshes_from_dictionary(mesh_dict, assign_material=True, center_pivot=True):
     :param assign_material: *bool* assigns the saved material to the mesh
     :param center_pivot: *bool* bakes cookies and makes icecream sundaes. Also centers the pivot of the new mesh
     """
+    new_meshes = []
     for mesh_name, info_dict in mesh_dict.items():
-        mesh_from_dictionary(info_dict, assign_material=assign_material, center_pivot=center_pivot)
+        new_mesh = mesh_from_dictionary(info_dict, assign_material=assign_material, center_pivot=center_pivot)
+        new_meshes.append(new_mesh)
+    return new_meshes
 
 
 def mesh_from_dictionary(mesh_dict, assign_material=True, mesh_name=None, center_pivot=True, select=True):
@@ -1141,19 +1187,49 @@ def set_enum_by_string(node, attribute, string):
 
 def are_siblings(nodes):
     """
-    Returns true if all the nodes in the list have the same parent node
-
+    Returns true is all the nodes in nodes have a common parent
     :param nodes: *list*
-    :return:
+    :return: *list*
     """
     parents = []
-    for node in nodes:
-        parents.append(pm.PyNode(node).getParent())
+    for joint in nodes:
+        parents.append(joint.getParent())
 
     if len(lists.remove_duplicates(parents)) == 1:
         return True
     return False
 
+def get_siblings(node):
+    """
+    Returns all the siblings of node
+
+    :param node: *pynode*
+    :return: *list&
+    """
+    parent = node.getParent()
+    if parent is None:
+        return get_top_level_nodes()
+    return parent.getChildren()
+
+def get_top_level_nodes():
+    """
+    Easy to remember one liner
+    :return: *list* of all top level nodes
+    """
+    return pm.ls("|*")
+
+def get_complete_hierarchy(root_node):
+    """
+    Returns the full hierarchy of a root node, including the root node. Because you don't get that from node.getChildren(allDescendents=True)
+
+    :param root_node: node or string
+    :return: *list*
+    """
+    root_node = pm.PyNode(root_node)
+    child_nodes = root_node.getChildren(allDescendents=True)
+    child_nodes.insert(0, root_node)
+
+    return child_nodes
 
 def make_marking_menu():
     pass
