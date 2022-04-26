@@ -1,6 +1,7 @@
 import traceback
 
 import pymel.core as pm
+import maya.cmds as cmds
 import maya.OpenMaya as om
 from maya import OpenMayaUI as omui
 
@@ -498,7 +499,7 @@ def enter_hammer_tool():
             newOMUI.M3dView().active3dView().viewToWorld(int(screen_x), int(screen_Y), position, direction)
 
             active_panel = mui.get_active_viewport()
-            active_camera = general.pynode(pm.modelPanel(active_panel, query=True, cam=True))
+            active_camera = general.pynode(cmds.modelPanel(active_panel, query=True, cam=True))
 
             camera_position = active_camera.getTranslation(worldSpace=True)
 
@@ -511,9 +512,14 @@ def enter_hammer_tool():
                 fn_mesh = newOM.MFnMesh(selection_list.getDagPath(0))
 
                 # hitpoint, hitrayparam, hit_face, hit_triangle, hit_bary1, hit_bar2
-                hit_point, _, hit_face, _, _, _ = fn_mesh.closestIntersection(newOM.MFloatPoint(position),
-                                                                              newOM.MFloatVector(direction),
-                                                                              newOM.MSpace.kWorld, 9999, False)
+                ray_result = fn_mesh.closestIntersection(newOM.MFloatPoint(position),
+                                                         newOM.MFloatVector(direction),
+                                                         newOM.MSpace.kWorld, 9999, False)
+                if ray_result is None:
+                    continue
+                hit_point = ray_result[0]
+                hit_face = ray_result[2]
+
                 # if the face is not -1, we know our ray hit something
                 if hit_face != -1:
                     point_mesh_face_list.append([hit_point, mesh, hit_face, fn_mesh])
@@ -711,21 +717,56 @@ class SkinInfo(object):
         if return_numbers:
             return influenced_vertices
 
-    def move_weights_to_other_joint(self, source_joint, target_joint, use_selected_components=False):
+    def move_weights_to_other_joint(self, source_joints, target_joints, use_selected_components=False, by_current_weights=False):
+        source_joints = source_joints if isinstance(source_joints, list) else [source_joints]
+        target_joints = target_joints if isinstance(target_joints, list) else [target_joints]
+
         if use_selected_components:
             influenced_vertices = general.flatten_selection_list(pm.polyListComponentConversion(pm.selected()[:-3], toVertex=True))
             print(influenced_vertices)
         else:
-            influenced_vertices = self.get_vertices_influenced_by(source_joint, return_full_vertex_name=False, return_numbers=True)
+            influenced_vertices = self.get_vertices_influenced_by(source_joints, return_full_vertex_name=False, return_numbers=True)
 
-        source_index = self.get_index_of_joint(source_joint)
-        target_index = self.get_index_of_joint(target_joint)
+        target_indices = [self.get_index_of_joint(jnt) for jnt in target_joints]
 
-        for vertex in influenced_vertices:
-            weights_list_for_this_vertex = self.get_weight_list_of_vertex(vertex)
-            weight_value_to_transfer = weights_list_for_this_vertex[source_index]
-            weights_list_for_this_vertex[source_index] = 0.0
-            weights_list_for_this_vertex[target_index] = weight_value_to_transfer
+        for source_joint in source_joints:
+            source_index = self.get_index_of_joint(source_joint)
+
+            for vertex in influenced_vertices:
+                weights_list_for_this_vertex = self.get_weight_list_of_vertex(vertex)
+                weight_value_to_transfer = weights_list_for_this_vertex[source_index]
+                weights_list_for_this_vertex[source_index] = 0.0
+
+                if by_current_weights:
+                    # distribute weighting by using the current weights on the vertex
+
+                    weights = {}
+                    for target_index in target_indices:
+                        current_weight_on_target = weights_list_for_this_vertex[target_index]
+                        weights[target_index] = current_weight_on_target
+
+                    weights_sum = sum(weights.values())
+
+                    # this vertex has no skinning to the target joints, so setting this number to avoid divide by zero
+                    if weights_sum == 0:
+                        weights_sum = 1
+
+                    normalized_weights = {vtx: weight / weights_sum for vtx, weight in weights.items()}
+
+                    # calculate a weighted value using normalized weighting
+                    for target_index, normalized_weight in normalized_weights.items():
+                        weight_to_add = weight_value_to_transfer * normalized_weight
+
+                        current_weight_on_target = weights_list_for_this_vertex[target_index]
+                        weights_list_for_this_vertex[target_index] = current_weight_on_target + weight_to_add
+
+                else:
+                    # alternate method here: evenly distribute weights across the target joints
+                    for target_index in target_indices:
+                        weight_to_add = weight_value_to_transfer / len(target_indices)
+
+                        current_weight_on_target = weights_list_for_this_vertex[target_index]
+                        weights_list_for_this_vertex[target_index] = current_weight_on_target + weight_to_add
 
         self.set_weights(self.get_complete_weights_list())
 
