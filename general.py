@@ -1,4 +1,5 @@
 import pymel.core as pm
+import maya.cmds as cmds
 
 from ..utils import lists
 from ..utils import io_utils
@@ -95,7 +96,7 @@ def get_all_visibile_meshes(as_transforms=False, as_shape_nodes=False):
     :param as_shape_nodes: *bool* get the shape nodes
     :return: *list* of transforms or shape nodes
     """
-    active_panel = pm.getPanel(withFocus=True)
+    active_panel = cmds.getPanel(withFocus=True)
 
     if pm.isolateSelect(active_panel, query=True, state=True):
         iso_select_objects = pynode(pm.isolateSelect(active_panel, query=True, viewObjects=True)).flattened()
@@ -569,7 +570,7 @@ def get_active_camera():
     :return: *Pynode*
     """
     try:
-        active_camera = pynode(pm.modelPanel(pm.getPanel(withFocus=True), query=True, cam=True))
+        active_camera = pm.PyNode(cmds.modelPanel(cmds.getPanel(withFocus=True), query=True, cam=True))
         return active_camera
     except Exception as err:
         print(err)
