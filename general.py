@@ -1122,6 +1122,20 @@ def get_all_inputs(source):
         inputs += get_all_inputs(input_node)
     return list(set(inputs))
 
+def get_all_outputs(source):
+    """
+    Returns all outputs to a specific node or attribute on node
+
+    :param source: *pynode* node or attribute on node
+    :return: recursive list of all outputs into source
+    """
+
+    outputs = []
+    for output_node in source.outputs():
+        outputs.append(output_node)
+        outputs += get_all_inputs(output_node)
+    return list(set(outputs))
+
 def get_component_numbers(components):
     """
     Returns the numbers of the passed in components
