@@ -5,14 +5,19 @@ from . import general
 from ..utils import lists
 from .constants import jk
 
-def label_joints(joints):
+
+def label_joints(joints=None, force=False):
     """
     Tries to automatically label joints based on either the Maya naming convention or the name of the joint itself.
     Tries to get the side from the name
 
     :param joints: <list> string or PyNodes
+    :param force: <bool>
     :return: None
     """
+    if joints is None:
+        joints = pm.ls(type="joint")
+
     label_dict = {}
     label_dict["none"] = 0
     label_dict["root"] = 1
@@ -45,10 +50,11 @@ def label_joints(joints):
     label_dict["pinky_toe"] = 28
     label_dict["foot_thumb"] = 29
 
-    for joint in [pm.PyNode(node) for node in joints]:
-        # early out if someone has already decorated/labeled this joint
-        if joint.getAttr("type") == label_dict["other"]:
-            continue
+    for joint in [pm.PyNode(node) for node in joints if general.is_joint(node)]:
+        if not force:
+            # early out if someone has already decorated/labeled this joint
+            if joint.getAttr("type") == label_dict["other"]:
+                continue
 
         x_pos = joint.getTranslation(space="world")[0]
         if x_pos > 0.01:
@@ -63,7 +69,7 @@ def label_joints(joints):
                 found_name = True
 
         if not found_name:
-            label_name = joint.name()
+            label_name = joint.nodeName(stripNamespace=True)
 
             left_names = lists.get_name_variant(["l_", "left_", "_l", "_left", "lft_", "lft_"])
             right_names = lists.get_name_variant(["r_", "right_", "_r", "_right", "rght_", "_rght"])
