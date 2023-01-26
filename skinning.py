@@ -564,6 +564,36 @@ def enter_hammer_tool():
                       dragCommand=partial(hammer, dragger_context, target_meshes))
     pm.setToolTo(dragger_context)
 
+def get_minimal_skeleton(meshes, root_joint_name="root", return_unused_joints=False):
+    """
+    Gets the minimal needed skeleton for the skinned meshes
+    :param meshes: *list* of PyNode meshes
+    :param root_joint_name: *string* name of joint that you want to be the root of the minimal skeleton
+    :param return_unused_joints: *bool* if set to True, will return a list of all the joints that are NOT in the minimal skeleton
+    :return: *list* of joints in the minimal skeleton
+    """
+    all_used_influences = []
+    all_used_parents = []
+
+    for mesh in meshes:
+        skin = get_skin_cluster_from_mesh(mesh)
+        influences = skin.getInfluence()
+        all_used_influences.extend(influences)
+
+        for joint in influences:
+            parents = joint.getAllParents()
+            for parent in parents:
+                if general.is_joint(parent):
+                    all_used_parents.append(parent)
+
+        all_used_parents = sorted(lists.remove_duplicates(all_used_parents))
+
+    everything_used = all_used_parents + all_used_influences
+    unused_joints = lists.difference([general.get_complete_hierarchy(root_joint_name), everything_used])
+
+    if return_unused_joints:
+        return unused_joints
+    return everything_used
 
 
 
