@@ -48,6 +48,28 @@ def turn_off_all_blend_shapes(blend_shape_node):
 
     return all_weights
 
+def extract_blend_shapes(blend_shape_node):
+    """
+    Extract the blend shape targets as separate meshes in the scene
+    :param blend_shape_node:
+    :return: *list* of newly generated meshes
+    """
+    generated = []
+    mesh = get_mesh_from_blend_shape_node(blend_shape_node)
+    for target_name in get_blend_shape_target_names(blend_shape_node):
+        set_blend_shape_value(blend_shape_node, target_name, 1)
+        dupe = pm.duplicate(mesh, name=target_name)
+        generated.append(pm.PyNode(dupe))
+
+    return generated
+
+def get_mesh_from_blend_shape_node(blend_shape_node):
+    """
+    Get the mesh the blend shape node is attached to
+    :param blend_shape_node:
+    :return:
+    """
+    return pm.listHistory(blend_shape_node, type="shape")[0].getParent()
 
 def get_blend_shape_target_names(blend_shape_node):
     """
@@ -60,7 +82,6 @@ def get_blend_shape_target_names(blend_shape_node):
     """
     blend_shape_node = pm.PyNode(blend_shape_node)
     return [weight.getAlias() for weight in blend_shape_node.w]
-
 
 def transfer_blend_shapes(source, target, specific_blend_shape_nodes=None):
     """
