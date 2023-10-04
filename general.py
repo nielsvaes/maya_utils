@@ -330,7 +330,7 @@ def pynode(object_name, specific_on_multiple=False, pick_most_root=False, pick_m
     :return: a PyNode
     """
     if object_name is None:
-        error("Can't make a PyNode when object_name type is None")
+        warning("Can't make a PyNode when object_name type is None")
     if type(object_name) == om.MFnDependencyNode:
         object_name = object_name.name()
 
@@ -384,7 +384,7 @@ def warning(message):
     :param message: *string* message you want to show
     :return:
     """
-    show_viewport_message(message, color="yellow", echo=False)
+    show_viewport_message(message, color="yellow", echo=False, visible_time=5000)
     pm.warning(message)
 
 def error(message):
@@ -672,8 +672,7 @@ def get_from_list(input_list, meshes=False, all_components=False, vertices=False
 
     if transforms:
         return_list.extend([node for node in pm.ls(input_list, type="transform")])
-
-    return [pynode(each) for each in lists.remove_duplicates(return_list)]
+    return [pm.PyNode(each) for each in lists.remove_duplicates(return_list)]
 
 def is_group(node):
     """
@@ -791,7 +790,6 @@ def get_vertices_inside_mesh(source_object, volume_object):
     found_vertices = []
     vertex_positions = get_vertex_pos_of_mesh(source_object)
     for index, point in enumerate(vertex_positions):
-        get_vertices_inside_mesh.update_progress(100 / len(vertex_positions), "Checking vertex %s" % index)
         if is_point_inside_mesh(point, volume_object.name()):
             found_vertices.append("%s.vtx[%s]" % (source_object.name(), index))
 
@@ -1245,6 +1243,18 @@ def get_complete_hierarchy(root_node):
     child_nodes.insert(0, root_node)
 
     return child_nodes
+
+def serialize_matrix(matrix):
+    """
+    Returns a list of lists describing the matrix
+
+    :param matrix: pm.dt.Matrix
+    :return: *list*
+    """
+    if not type(matrix) == pm.dt.Matrix:
+        error(f"{matrix} is not of data type Matrix")
+        return
+    return [list(arr) for arr in list(matrix)]
 
 def make_marking_menu():
     pass
