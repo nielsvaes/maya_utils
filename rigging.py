@@ -3,7 +3,7 @@ import maya.cmds as cmds
 
 from . import general
 from ..utils import lists
-from .constants import jk
+from .constants import jk, tk
 
 
 def label_joints(joints=None, force=False):
@@ -209,6 +209,7 @@ def skeleton_as_dictionary(root_joint, strip_namespace=True):
     skeleton_dict_list = []
 
     joint_hierarchy = general.get_from_list([root_joint] + root_joint.getChildren(allDescendents=True), joints=True)
+    joint_hierarchy = [jnt for jnt in joint_hierarchy if jnt is not None]
     joint_hierarchy.sort(key=lambda j: len(j.name(long=True)))
 
     for joint in joint_hierarchy:
@@ -234,13 +235,13 @@ def skeleton_as_dictionary(root_joint, strip_namespace=True):
 
     return skeleton_dict_list
 
-def skeleton_from_dictionary(dictionary_list, adjust_existing_joints=True, node_remap=None):
+def skeleton_from_dictionary(dictionary_list, add_missing_joints=False, node_remap=None):
     """
     Builds the skeleton based on the dictionaries in dictionary_list
 
     :param dictionary_list: <list>
-    :param adjust_existing_joints: <bool> if turned off, will always create a new joint for every joint dictionary in
-    dictionary_list, even it already exists. If turned on, will load the attributes on the existing joints in the scene.
+    :param add_missing_joints: <bool> if turned on, will create ensure a joint exists for every joint dictionary in
+    dictionary_list.
     :return:
     """
     for i, joint_dictionary in enumerate(dictionary_list):
@@ -254,32 +255,38 @@ def skeleton_from_dictionary(dictionary_list, adjust_existing_joints=True, node_
                 if jnt_parent in list(node_remap.keys()):
                     jnt_parent = node_remap.get(jnt_parent)
 
-            if adjust_existing_joints:
-                if pm.objExists(long_name):
-                    joint = general.pynode(long_name)
-                else:
-                    found_matches = pm.ls(short_name)
-                    if len(found_matches) == 1:
-                        joint = found_matches[0]
-                    elif len(found_matches) > 1:
-                        raise Exception("Found multiple matches for joint : {}. \n Aborting! \n Found matches : {}"
-                                        .format(short_name, [n.name() for n in found_matches]))
-                    else:
-                        raise Exception("Found no match for joint : {}. \n Aborting!".format(short_name))
+            joint = None
+            if pm.objExists(long_name):
+                joint = general.pynode(long_name)
             else:
-                joint = pm.createNode(pm.nt.Joint, name=short_name)
+                found_matches = pm.ls(short_name)
+                if len(found_matches) == 1:
+                    joint = found_matches[0]
+                elif len(found_matches) > 1:
+                    raise Exception("Found multiple matches for joint : {}. \n Aborting! \n Found matches : {}"
+                                    .format(short_name, [n.name() for n in found_matches]))
 
-            if not adjust_existing_joints:
+            if add_missing_joints and not pm.objExists(long_name):
+                joint = pm.createNode(pm.nt.Joint, name=short_name)
                 pm.parent(joint, jnt_parent)
+
+            # didn't create a joint, and couldn't find it, skip
+            if not joint:
+                pm.warning(f"Found no match for joint, and not creating it: {short_name}")
+                continue
+
+            existing_parent_name = joint.getParent().nodeName() if joint.getParent() else None
+            if existing_parent_name != jnt_parent:
+                pm.warning(f"Parent mismatch found on {short_name}: expected='{jnt_parent}' - actual='{joint.getParent()}'")
 
             joint.rotateOrder.set(joint_dictionary.get(jk.rotate_order))
             joint.radius.set(joint_dictionary.get(jk.radius))
             joint.jointOrient.set(joint_dictionary.get(jk.joint_orient))
             if jnt_parent is None:
-                joint.setMatrix(joint_dictionary.get(jk.world_matrix))
+                joint.setMatrix(joint_dictionary.get(tk.world_matrix))
             else:
-                joint.setMatrix(joint_dictionary.get(jk.local_matrix), objectSpace=True)
-            joint.visibility.set(joint_dictionary.get(jk.visibility))
+                joint.setMatrix(joint_dictionary.get(tk.local_matrix), objectSpace=True)
+            joint.visibility.set(joint_dictionary.get(tk.visibility))
         except Exception as err:
             print(err)
             pass
