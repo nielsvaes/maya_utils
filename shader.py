@@ -93,6 +93,7 @@ def assign_material(mesh, material):
     :param material:
     :return:
     """
+    mesh = pm.PyNode(mesh)
     material = pm.PyNode(material)
     shading_group = pm.PyNode(material).listConnections(type="shadingEngine")[0]
 
