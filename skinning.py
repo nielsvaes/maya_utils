@@ -10,6 +10,7 @@ import maya.api.OpenMayaUI as newOMUI
 
 from ..utils import io_utils
 from ..utils import decorators
+from ..utils import lists
 from . import general
 from . import ui as mui
 # import general
@@ -49,13 +50,15 @@ def hard_skin_to_single_joint(mesh, joint, remove_unused_influences=True):
 
     return skin_cluster
 
-def copy_skin(source_mesh, target_mesh, method=["label", "oneToOne", "closestJoint"], smooth=True):
+def copy_skin(source_mesh, target_mesh, method=["label", "oneToOne", "closestJoint"], source_uv_set_name=None, target_uv_set_name=None, smooth=True):
     """
     Copies the skinning from the source mesh to the target mesh. Makes a skin cluster if the target mesh doesn't have one
 
     :param source_mesh: <string> or <pynode> of where you want to copy from
     :param target_mesh: <string> or <pynode> of where you want to copy to
     :param method: <list> of strings. Options:["label", "closestBone", "closestJoint"]
+    :param source_uv_set_name: <string> If both source_uv_set_name and target_uv_set_name are set, skin will be copied in UV space
+    :param target_uv_set_name: <string> If both source_uv_set_name and target_uv_set_name are set, skin will be copied in UV space
     :param smooth: <bool> smooth the weights after copying them over. Default is True
     :return: None
     """
@@ -74,7 +77,10 @@ def copy_skin(source_mesh, target_mesh, method=["label", "oneToOne", "closestJoi
     for joint in influencing_joints:
         add_joint_to_skin_cluster(joint, target_skin)
 
-    pm.copySkinWeights(source_mesh, target_mesh, noMirror=True, influenceAssociation=method, smooth=smooth)
+    if type(source_uv_set_name) == str and type(target_uv_set_name) == str:
+        pm.copySkinWeights(sourceSkin=source_skin.name(), destinationSkin = target_skin.name(), uvSpace=[source_uv_set_name, target_uv_set_name], noMirror=True, influenceAssociation=method, smooth=smooth)
+    else:
+        pm.copySkinWeights(sourceSkin=source_skin.name(), destinationSkin=target_skin.name(), noMirror=True, influenceAssociation=method, smooth=smooth)
 
 def add_joint_to_skin_cluster(joint, skin_cluster):
     """
@@ -178,8 +184,6 @@ def get_soft_selection_weights():
     softSelection = om.MRichSelection()
     om.MGlobal.getRichSelection(softSelection)
     softSelection.getSelection(selection)
-
-    print(selection)
 
     dagPath = om.MDagPath()
     component = om.MObject()
@@ -344,7 +348,7 @@ def paste_weights():
         pass
     pm.select(selection)
 
-def reinitialize_skinning(mesh):
+def reinitialize_skinning(mesh, in_bindpose=False):
     """
     Save the current skinning, deletes the skincluster and loads the skinning back on
 
@@ -356,11 +360,29 @@ def reinitialize_skinning(mesh):
 
     skin_info = SkinInfo(mesh)
     skin_info.save_skin_to_file(temp_file, binary=True)
-    pm.select(mesh)
-    pm.mel.DetachSkin()
+
+    if in_bindpose:
+        pm.select(mesh)
+        pm.mel.gotoBindPose()
+
+    delete_skinning(mesh)
 
     skin_info.load_skin_from_file(temp_file, binary=True)
 
+def delete_skinning(node):
+    node = pm.PyNode(node)
+    pm.select(node)
+    pm.mel.DeleteHistory()
+
+    for attr in node.listAttr(keyable=True):
+        try:
+            attr.unlock()
+        except Exception as e:
+            traceback.print_exc()
+
+    intermediate_shapes = [s for s in node.getShapes() if s.intermediateObject.get()]
+    if intermediate_shapes:
+        pm.delete(intermediate_shapes)
 
 placed_joints = []
 def enter_joint_placement(post_creation_func=None):
@@ -564,14 +586,23 @@ def enter_hammer_tool():
                       dragCommand=partial(hammer, dragger_context, target_meshes))
     pm.setToolTo(dragger_context)
 
-def get_minimal_skeleton(meshes, root_joint_name="root", return_unused_joints=False):
+def get_minimal_skeleton(meshes, root_joint_name="root", return_unused_joints=False, always_include_joints=[]):
     """
     Gets the minimal needed skeleton for the skinned meshes
-    :param meshes: *list* of PyNode meshes
-    :param root_joint_name: *string* name of joint that you want to be the root of the minimal skeleton
-    :param return_unused_joints: *bool* if set to True, will return a list of all the joints that are NOT in the minimal skeleton
-    :return: *list* of joints in the minimal skeleton
+    :param meshes: <list> of PyNode meshes
+    :param root_joint_name: <string> name of joint that you want to be the root of the minimal skeleton
+    :param always_include_joints: <list> joints that should always be included. Any parents of these joings will also be in the list
+    :param return_unused_joints: <bool> if set to True, will return a list of all the joints that are NOT in the minimal skeleton
+    :return: <list> of joints in the minimal skeleton
     """
+
+    if type(meshes) != list:
+        meshes = [meshes]
+    if type(always_include_joints) != list:
+        always_include_joints = [always_include_joints]
+
+    always_include_joints = [pm.PyNode(jnt) for jnt in always_include_joints]
+
     all_used_influences = []
     all_used_parents = []
 
@@ -588,13 +619,12 @@ def get_minimal_skeleton(meshes, root_joint_name="root", return_unused_joints=Fa
 
         all_used_parents = sorted(lists.remove_duplicates(all_used_parents))
 
-    everything_used = all_used_parents + all_used_influences
+    everything_used = all_used_parents + all_used_influences + always_include_joints
     unused_joints = lists.difference([general.get_complete_hierarchy(root_joint_name), everything_used])
 
     if return_unused_joints:
         return unused_joints
     return everything_used
-
 
 
 class SkinInfo(object):
