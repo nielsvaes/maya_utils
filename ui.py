@@ -6,9 +6,9 @@ import maya.api.OpenMaya as newOM
 import maya.api.OpenMayaUI as newOMUI
 import tempfile
 
-from PySide2.QtWidgets import *
-from PySide2 import QtCore, QtGui
-from shiboken2 import wrapInstance
+from PySide6.QtWidgets import *
+from PySide6 import QtCore, QtGui
+from shiboken6 import wrapInstance
 
 import sys
 if sys.version_info.major > 2:

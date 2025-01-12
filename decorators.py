@@ -1,4 +1,4 @@
-from ..utils import lists
+from utils import lists
 import pymel.core as pm
 
 class progress_window(object):

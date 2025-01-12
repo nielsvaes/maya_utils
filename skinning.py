@@ -8,9 +8,9 @@ from maya import OpenMayaUI as omui
 import maya.api.OpenMaya as newOM
 import maya.api.OpenMayaUI as newOMUI
 
-from ..utils import io_utils
-from ..utils import decorators
-from ..utils import lists
+from utils import io_utils
+from utils import decorators
+from utils import lists
 from . import general
 from . import ui as mui
 # import general
@@ -558,7 +558,8 @@ def enter_hammer_tool():
 
                 if modifier == "shift":
                     vertices = [general.pynode("%s.vtx[%s]" % (closest_mesh.name(), vtx)) for vtx in closest_fn_mesh.getPolygonVertices(closest_face)]
-                    vertices.sort(key=lambda vtx: general.mpoint_to_vector(vtx.getPosition(space="world")).distanceTo(general.mpoint_to_vector(closest_hitpoint)))
+                    vertices.sort(key=lambda vtx: general.mpoint_to_vector(vtx.getPosition(space="world")).distanceTo(
+                        general.mpoint_to_vector(closest_hitpoint)))
                     pm.select(vertices[0])
                 elif modifier == "ctrl":
                     pass
@@ -567,7 +568,8 @@ def enter_hammer_tool():
                     for edge in edges:
                         edge_vertices.extend(edge.connectedVertices())
 
-                    edge_vertices.sort(key=lambda vtx: general.mpoint_to_vector(vtx.getPosition(space="world")).distanceTo(general.mpoint_to_vector(closest_hitpoint)))
+                    edge_vertices.sort(key=lambda vtx: general.mpoint_to_vector(vtx.getPosition(space="world")).distanceTo(
+                        general.mpoint_to_vector(closest_hitpoint)))
                     pm.select(edge_vertices[0], edge_vertices[1])
                 else:
                     pm.select("%s.f[%s]" % (closest_mesh.name(), closest_face))

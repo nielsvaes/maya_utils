@@ -2,7 +2,7 @@ import pymel.core as pm
 import maya.cmds as cmds
 
 from . import general
-from ..utils import lists
+from utils import lists
 from .constants import jk, tk
 
 

@@ -1,8 +1,8 @@
 import pymel.core as pm
 import maya.cmds as cmds
 
-from ..utils import lists
-from ..utils import io_utils
+from utils import lists
+from utils import io_utils
 from . import shader
 from .constants import ComponentSelectionType
 
@@ -14,8 +14,8 @@ from maya import OpenMayaUI as omui
 from maya import OpenMaya as old_OM
 import maya.api.OpenMaya as om
 
-from PySide2.QtWidgets import *
-from shiboken2 import wrapInstance
+from PySide6.QtWidgets import *
+from shiboken6 import wrapInstance
 
 import sys
 if sys.version_info.major > 2:
